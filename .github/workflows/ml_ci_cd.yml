@@ -35,6 +35,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-py38-pip-
 
+      - name: train model
+        run: python model/train.py
+
+
       - name: Install requirements
         env:
           PIP_ONLY_BINARY: ":all:"   # evita compilar desde fuente
