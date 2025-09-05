@@ -6,13 +6,37 @@ on:
     branches: [ master ]
   repository_dispatch:
     types: [ml_ci_cd]
+
 jobs:
   ml_ci_cd:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: python version
-      run: python --version
-    - name: Install requirements
-      run: python -m pip install -r requirements.txt
+      - uses: actions/checkout@v4
 
+      - name: Set up Python
+      # 3.11 funciona con numpy 1.23.x
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Show Python & pip
+        run: |
+          python --version
+          python -m pip --version
+
+      - name: Upgrade pip/setuptools/wheel
+        run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install requirements
+        env:
+          # Evita builds desde código fuente
+          PIP_ONLY_BINARY: ":all:"
+        run: python -m pip install -r requirements.txt
