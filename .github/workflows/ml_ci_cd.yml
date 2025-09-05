@@ -5,33 +5,37 @@ on:
   pull_request:
     branches: [ master ]
   repository_dispatch:
-    types: [ml_ci_cd]
+    types: [ ml_ci_cd ]
 
 jobs:
   ml_ci_cd:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ '3.8' ]
+
     steps:
-      # 1. Clonar el repositorio
+      # 1) Checkout
       - uses: actions/checkout@v4
 
-      # 2. Configurar Python 3.8
-      - name: Set up Python 3.8
+      # 2) Python 3.8 (como acordamos)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.8'
+          python-version: ${{ matrix.python-version }}
 
-      # 3. Mostrar versión de Python y pip
+      # 3) Mostrar versiones
       - name: Show Python & pip
         run: |
           python --version
           python -m pip --version
 
-      # 4. Actualizar pip, setuptools y wheel para evitar conflictos
+      # 4) Evitar conflictos con Py3.8 (conservamos esto)
       - name: Upgrade pip/setuptools/wheel
         run: |
           python -m pip install --upgrade "pip<25" "setuptools<70" "wheel"
 
-      # 5. Cachear dependencias pip para acelerar builds
+      # 5) Cache pip (conservado)
       - name: Cache pip
         uses: actions/cache@v4
         with:
@@ -40,12 +44,71 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-py38-pip-
 
-      # 6. Instalar dependencias del proyecto
+      # 6) Instalar dependencias (conservado)
       - name: Install requirements
         env:
           PIP_ONLY_BINARY: ":all:"
         run: python -m pip install -r requirements.txt
 
-      # 7. Entrenar el modelo de Machine Learning
+      # 7) Descargar dataset como el profe (si viene por repository_dispatch)
+      - name: Download dataset
+        if: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.dataseturl != '' }}
+        run: |
+          mkdir -p data
+          wget -O data/heart_disease.csv "${{ github.event.client_payload.dataseturl }}"
+
+      # 8) Cat del dataset (solo si existe)
+      - name: Cat dataset
+        run: |
+          if [ -f data/heart_disease.csv ]; then
+            echo "===== head -n 5 data/heart_disease.csv ====="
+            head -n 5 data/heart_disease.csv
+          else
+            echo "data/heart_disease.csv no existe; saltando vista previa."
+          fi
+
+      # 9) Entrenar modelo (conservamos tu paso)
       - name: Train model
         run: python model/train.py
+
+      # 10) Listar carpeta model (como el profe)
+      - name: List model dir
+        run: |
+          if [ -d model ]; then
+            ls -la model
+          else
+            echo "Directorio 'model' no existe."
+          fi
+
+      # 11) Docker build (igual que el profe: user/model:sha)
+      - name: Docker Build
+        run: |
+          if [ -z "${{ github.event.client_payload.sha }}" ]; then
+            echo "No viene client_payload.sha; usaré el SHA del commit."
+            TAG="${{ github.sha }}"
+          else
+            TAG="${{ github.event.client_payload.sha }}"
+          fi
+          docker build -t "${{ secrets.DOCKER_USER }}/${{ secrets.MODEL_NAME }}:${TAG}" .
+
+      # 12) Mostrar imágenes
+      - name: Show Docker images
+        run: docker images
+
+      # 13) Docker Login (como el profe)
+      - name: Docker Login
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+
+      # 14) Docker Push (como el profe)
+      - name: Docker Push
+        run: |
+          if [ -z "${{ github.event.client_payload.sha }}" ]; then
+            TAG="${{ github.sha }}"
+          else
+            TAG="${{ github.event.client_payload.sha }}"
+          fi
+          docker push "${{ secrets.DOCKER_USER }}/${{ secrets.MODEL_NAME }}:${TAG}"
